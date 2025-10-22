@@ -1,121 +1,129 @@
 #include <stdio.h>
 #include <signal.h>
 #include <unistd.h>
-#include <string.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <time.h>
+#include <sys/time.h>
+#include <stdarg.h>
+#include <stdlib.h>
 
-
-static void manejador (int sig) {
-    const char *msg;
-    if (sig == SIGUSR1) {
-        msg = "Señal recibida: SIGUSR1\n";
-    } else if (sig == SIGUSR2) {
-        msg = "Señal recibida: SIGUSR2\n";
-    } else {
-        msg = "Señal recibida: Desconocida\n";
-    }
-    write(STDOUT_FILENO, msg, strlen(msg));
+/*
+ * logf: função auxiliar para imprimir mensagens com timestamp, PID e uma etiqueta (P, H1, N1).
+ * Se usa para ver claramente o orden temporal e quem realiza cada ação.
+ */
+static void logf(const char *tag, const char *fmt, ...) {
+    struct timeval tv; gettimeofday(&tv, NULL);
+    time_t t = tv.tv_sec; struct tm *tm = localtime(&t);
+    char ts[32]; strftime(ts, sizeof(ts), "%H:%M:%S", tm);
+    printf("[%s pid=%ld %s] ", ts, (long)getpid(), tag);
+    va_list ap; va_start(ap, fmt);
+    vprintf(fmt, ap);
+    va_end(ap);
+    printf("\n");
 }
 
-int main (void) {
+/*
+ * manejador: gestor de sinais para SIGUSR1 e SIGUSR2.
+ * Apenas escreve mensagens para indicar qual sinal foi recebido.
+ */
+void manejador(int sig) {
+    if (sig == SIGUSR1)
+        printf("Sinal recebido: SIGUSR1\n");
+    else if (sig == SIGUSR2)
+        printf("Sinal recebido: SIGUSR2\n");
+    else
+        printf("Sinal recebido: desconhecido\n");
+}
+
+int main() {
+    setvbuf(stdout, NULL, _IONBF, 0);
+
+    /*
+     * Instala o manejador de sinais com sigaction.
+     * SA_RESTART reintenta chamadas ao sistema interrompidas por sinais.
+     */
     struct sigaction sa;
-    sa.sa_handler = manejador;
     sigemptyset(&sa.sa_mask);
+    sa.sa_handler = manejador;
     sa.sa_flags = SA_RESTART;
 
-    if (sigaction(SIGUSR1, &sa, NULL) == -1) {
-        perror("sigaction SIGUSR1");
-        return 1;
-    }
-    if (sigaction(SIGUSR2, &sa, NULL) == -1) {
-        perror("sigaction SIGUSR2");
-        return 1;
-    }
+    sigaction(SIGUSR1, &sa, NULL);
+    sigaction(SIGUSR2, &sa, NULL);
 
-    // Bloquear SIGUSR1 antes de fork para garantizar que P la tenga bloqueada
+    /*
+     * Pai (P): bloqueia SIGUSR1 antes do fork.
+     * Objetivo: quando H1 enviar SIGUSR1, o sinal ficará pendente e só será entregue
+     * quando P decidir desbloqueá-lo.
+     */
     sigset_t block;
     sigemptyset(&block);
     sigaddset(&block, SIGUSR1);
-    if (sigprocmask(SIG_BLOCK, &block, NULL) == -1) {
-        perror("sigprocmask BLOCK");
-        return 1;
-    }
+    sigprocmask(SIG_BLOCK, &block, NULL);
+    logf("P", "SIGUSR1 bloqueada; PID P=%ld", (long)getpid());
 
+    /*
+     * fork de H1:
+     * - H1 enviará SIGUSR1 a P, criará N1 e esperará por ele.
+     * - P dormirá, verificará se SIGUSR1 está pendente, desbloqueará e esperará H1.
+     */
     pid_t h1 = fork();
-    if (h1 == -1) {
-        perror("fork H1");
-        return 1;
-    }
 
     if (h1 == 0) {
-        // Hijo H1: desbloquear SIGUSR1 (no la necesita bloqueada)
-        if (sigprocmask(SIG_UNBLOCK, &block, NULL) == -1) {
-            perror("H1: sigprocmask UNBLOCK");
-            _exit(102);
-        }
+        // ---- Filho (H1) ----
+        sigprocmask(SIG_UNBLOCK, &block, NULL);
+        logf("H1", "PID H1=%ld; SIGUSR1 desbloqueada em H1", (long)getpid());
 
-        pid_t pid_abuelo = getppid();           // PID del abuelo (P)
-        if (kill(pid_abuelo, SIGUSR1) == -1) {  // H1 envía SIGUSR1 a P
-            perror("H1: kill SIGUSR1 a P");
-        }
+        // H1 envia SIGUSR1 ao pai (P)
+        pid_t pid_pai = getppid();
+        logf("H1", "Enviando SIGUSR1 a P=%ld", (long)pid_pai);
+        kill(pid_pai, SIGUSR1);
 
+        // Cria o neto (N1)
         pid_t n1 = fork();
-        if (n1 == -1) {
-            perror("fork N1");
-            _exit(100);
-        }
         if (n1 == 0) {
-            // Nieto N1: envía SIGUSR2 al abuelo, espera 5s y termina
-            if (kill(pid_abuelo, SIGUSR2) == -1) {
-                perror("N1: kill SIGUSR2 a P");
-            }
+            // ---- Neto (N1) ----
+            logf("N1", "PID N1=%ld; enviando SIGUSR2 a P=%ld e dormindo 5s",
+                 (long)getpid(), (long)pid_pai);
+            kill(pid_pai, SIGUSR2);
             sleep(5);
-            _exit(42); // Código único para N1
+            logf("N1", "Terminando execução");
+            return 42;
         }
 
-        // H1 espera a N1
-        int status_n1 = 0;
-        if (waitpid(n1, &status_n1, 0) == -1) {
-            perror("waitpid N1");
-            _exit(101);
-        }
-        if (WIFEXITED(status_n1)) {
-            printf("H1: N1 terminó con código %d\n", WEXITSTATUS(status_n1));
-        } else if (WIFSIGNALED(status_n1)) {
-            printf("H1: N1 terminó por señal %d\n", WTERMSIG(status_n1));
-        }
-        _exit(21); // Código único para H1
+        // H1 espera N1 terminar
+        logf("H1", "Esperando N1=%ld terminar", (long)n1);
+        wait(NULL);
+        logf("H1", "N1 terminou; H1 saindo");
+        return 21;
     }
 
-    // Padre P
-    printf("PID del proceso P: %ld\n", (long)getpid());
-    printf("PID del hijo H1: %ld\n", (long)h1);
-    printf("P: SIGUSR1 bloqueada durante 3s...\n");
+    // ---- Pai (P) ----
+    logf("P", "H1 criado com PID=%ld", (long)h1);
+    logf("P", "Dormindo 3s enquanto SIGUSR1 permanece bloqueada");
     sleep(3);
 
-    // Desbloquear SIGUSR1: si estaba pendiente, se entrega ahora
-    if (sigprocmask(SIG_UNBLOCK, &block, NULL) == -1) {
-        perror("P: sigprocmask UNBLOCK");
-        return 1;
-    }
-    printf("P: SIGUSR1 desbloqueada\n"); // La orden puede variar con el SIGUSR1 caso el ya estuviera pendiente
+    /*
+     * Antes de desbloquear, P verifica se SIGUSR1 está pendente.
+     * Se sim, significa que H1 já enviou o sinal enquanto estava bloqueado.
+     */
+    sigset_t pending;
+    sigpending(&pending);
+    if (sigismember(&pending, SIGUSR1))
+        logf("P", "SIGUSR1 está PENDENTE");
+    else
+        logf("P", "SIGUSR1 não está pendente");
 
-    int status_h1 = 0;
-    if (waitpid(h1, &status_h1, 0) == -1) {
-        perror("waitpid H1");
-        return 1;
-    }
-    if (WIFEXITED(status_h1)) {
-        printf("P: H1 terminó con código %d\n", WEXITSTATUS(status_h1));
-    } else if (WIFSIGNALED(status_h1)) {
-        printf("P: H1 terminó por señal %d\n", WTERMSIG(status_h1));
-    }
+    /*
+     * Ao desbloquear SIGUSR1, o kernel entrega o sinal imediatamente se ele estiver pendente.
+     */
+    logf("P", "Desbloqueando SIGUSR1");
+    sigprocmask(SIG_UNBLOCK, &block, NULL);
 
-    printf("En otra terminal, envía señales usando 'kill -SIGUSR1 %ld' o 'kill -SIGUSR2 %ld'\n",
-           (long)getpid(), (long)getpid());
+    // P espera H1 terminar
+    logf("P", "Esperando H1=%ld", (long)h1);
+    wait(NULL);
+    logf("P", "H1 terminou; encerrando programa");
 
-    for(;;) {
-        pause();
-    }
+    return 0;
 }
