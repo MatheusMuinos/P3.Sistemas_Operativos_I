@@ -5,16 +5,15 @@
 #include <unistd.h>
 #include <math.h>
 
-static void gestion(int); /* Declaración de la función de gestión de señales recibidas */
+//Programa realizado por Matheus Muiños Kruschewsky y Hugo Veiga Couselo
 
-int contador = 0;
+static void gestion(int); 
 double n = 0;
 
 int main() {
     printf("\nMi pid es: %d\n", getpid());
 
     // Registrar manejadores de señales
-    if (signal(SIGINT, gestion) == SIG_ERR) printf("Error al crear gestor SIGINT\n");
     if (signal(SIGUSR1, gestion) == SIG_ERR) printf("Error al crear gestor SIGUSR1\n");
     if (signal(SIGALRM, gestion) == SIG_ERR) printf("Error al crear gestor SIGALRM\n");
 
@@ -37,10 +36,6 @@ static void gestion(int numero_de_senhal) {
         case SIGALRM:
             printf("\nEL número actual es: %lf y mi pid es: %d \n", n,getpid());//imprimimos pid tambien para terminar con kill
             alarm(1);//Vuelve a mandar una señal en 1 segundo
-            break;
-        case SIGINT:
-            printf("\nInterrupción con Ctrl+C. PID: %d\n", getpid());
-            exit(0);
             break;
         default:
             printf("Señal desconocida recibida: %d\n", numero_de_senhal);
