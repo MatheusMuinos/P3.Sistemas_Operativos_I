@@ -11,6 +11,9 @@
 #include <errno.h>
 #include <stdlib.h>
 
+//Programa realizado por Matheus Muiños Kruschewsky y Hugo Veiga Couselo
+
+
 void gestion(int sig){
     if (sig == SIGUSR1) {
         printf("\nSeñal recibida: SIGUSR1, %d\n",getpid());
@@ -64,8 +67,8 @@ int main(){
     pid_t pidpadre=getpid();
     pid_t h1=fork();
     
-    if(h1==0){
-        pid_t n1=fork();
+    if(h1==0){//parte de hijo 1
+        pid_t n1=fork();//creamos al nieto
         if(n1!=0){//Hijo 1
             int estn1;
 
@@ -108,20 +111,15 @@ int main(){
             
             //Manda SIGUSR2 al padre (su respectivo abuelo)
             kill(pidpadre,SIGUSR2);
+
+
             t=time(NULL);
             info=localtime(&t);
             gettimeofday(&tiempo,NULL);
             printf("\nSoy el nieto 1 y voy a dormir 5s, mi pi y mi hora es: %d, %02d:%02d:%02ld:%06ld\n",getpid(),info->tm_hour,info->tm_min,tiempo.tv_sec%60,tiempo.tv_usec);
             
             //Duerme 5 segundos
-            //En este caso no es necesario pero
-            //Si el sleep puede ser interrumpido por señales y la funcion sleep devuelve los segundos que faltaron por dormir 
-            //Así que hace este bucle para dormir los 5 segundos, veremos en el sleep(100) de la línea 142 que no se cumpliran los 100
             int n=5;
-            /*do{
-                n=sleep(n);
-                printf("\nHice %d segundos",n);
-            }while(n!=0);*/
             sleep(n);
 
             t=time(NULL);
@@ -131,7 +129,7 @@ int main(){
             
             
             //Muere
-            exit(111);
+            exit(333);
         }
     }else{
         t=time(NULL);
@@ -141,7 +139,7 @@ int main(){
         
         //Duerme el rato necesario (no se duerme todo el teimpo porque en cuanto llegue SIGUSR2 continuara el codigo tomando el sleep ya hecho)
         int n=sleep(100);
-        printf("\nSolo se durmieron %d segundos de 100",100-n);
+        printf("\nSolo se durmieron %d segundos de 100\n",100-n);
 
         t=time(NULL);
         info=localtime(&t);
@@ -155,7 +153,7 @@ int main(){
         } 
 
 
-        printf("estoy desbloqueando\n");
+        printf("\nestoy desbloqueando\n");
 
 
         t=time(NULL);

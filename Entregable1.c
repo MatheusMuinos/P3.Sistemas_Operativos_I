@@ -7,7 +7,9 @@
 
 //Programa realizado por Matheus Muiños Kruschewsky y Hugo Veiga Couselo
 
-static void gestion(int); 
+static void gestion(int);
+
+//Usamos una variable global para poder acceder a ella desde cualquier lugar del programa
 double n = 0;
 
 int main() {
@@ -19,9 +21,10 @@ int main() {
 
     alarm(1);//Programa una SIGALRM en 1 segundo, si fuese alarm(x) en x segundos 
 
+    //Bucle realizando las potencias
     for (int i = 0;; i++) {
-        n = pow(i, 0.5);
-        sleep(1); 
+        n = pow(i, 0.5);//calculo de sqrt(n) usando pow para que tarde más
+        //sleep(1); //sleep puesto para consultar comportamiento
     }
 
     return 0;
@@ -34,7 +37,8 @@ static void gestion(int numero_de_senhal) {
             exit(0);
             break;
         case SIGALRM:
-            printf("\nEL número actual es: %lf y mi pid es: %d \n", n,getpid());//imprimimos pid tambien para terminar con kill
+            printf("\nEL número actual es: %f y mi pid es: %d \n", n,getpid());//imprimimos pid tambien para terminar con kill
+            printf("\nPara parar mandar la señal SIGUSR1 al proceso %d con el comando kill -SIGUSR1 %d\n",getpid(),getpid());
             alarm(1);//Vuelve a mandar una señal en 1 segundo
             break;
         default:
